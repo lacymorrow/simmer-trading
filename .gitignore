@@ -11,3 +11,4 @@ Thumbs.db
 *.log
 docs/agent-config.json
 docs/
+logs/

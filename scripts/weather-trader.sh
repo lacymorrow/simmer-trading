@@ -265,6 +265,10 @@ if [[ "$MARKET_COUNT" -eq 0 ]]; then
   exit 0
 fi
 
+# Pre-fetch existing positions to avoid re-buying
+EXISTING_POSITIONS=$("$SIMMER" GET /api/sdk/positions 2>/dev/null) || EXISTING_POSITIONS='{"positions":[]}'
+HELD_MARKET_IDS=$(echo "$EXISTING_POSITIONS" | jq -r '[.positions[].market_id] | join(",")' 2>/dev/null || echo "")
+
 # Step 2: Process each market
 TRADES_PLACED=0
 CONTEXT_CALLS=0
@@ -288,6 +292,11 @@ echo "$MARKETS" | jq -c '.markets[]' 2>/dev/null | while IFS= read -r market; do
   fi
   if [[ "$PRICE_HIGH" == "yes" ]]; then
     continue  # too expensive, no edge
+  fi
+
+  # Skip if we already hold this market
+  if echo "$HELD_MARKET_IDS" | grep -q "$MARKET_ID"; then
+    continue
   fi
 
   log "--- Evaluating: $QUESTION (price=$CURRENT_PRICE) ---"
@@ -391,7 +400,13 @@ echo "$MARKETS" | jq -c '.markets[]' 2>/dev/null | while IFS= read -r market; do
       continue
     }
 
-    SHARES=$(echo "$RESULT" | jq -r '.shares_bought // .shares // "unknown"')
+    SHARES=$(echo "$RESULT" | jq -r '.shares_bought // .shares // "0"')
+    # Check if we actually got shares
+    GOT_SHARES=$(echo "$SHARES" | awk '{print ($1 > 0) ? "yes" : "no"}')
+    if [[ "$GOT_SHARES" != "yes" ]]; then
+      log "  Trade returned 0 shares (likely already holding or insufficient liquidity)"
+      continue
+    fi
     log "  Trade executed: $SHARES shares of $OUR_SIDE"
 
     # Set risk monitors
