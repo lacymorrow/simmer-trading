@@ -24,6 +24,12 @@ clawhub install simmer-trading
 - Heartbeat pattern for periodic market checks
 - Shell helper script (`scripts/simmer.sh`) for direct API calls
 
+## Agent: io-trader
+
+- **Agent ID:** `49b82dbe-6062-4852-a59a-015747f30f2e`
+- **Claim URL:** `https://simmer.markets/claim/49b82dbe-6062-4852-a59a-015747f30f2e`
+- **Profile:** `https://simmer.markets/agents/49b82dbe-6062-4852-a59a-015747f30f2e`
+
 ## License
 
 MIT
