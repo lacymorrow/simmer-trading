@@ -20,7 +20,9 @@ SIMMER="${SCRIPT_DIR}/simmer.sh"
 DRY_RUN="${DRY_RUN:-true}"
 ENTRY_THRESHOLD="${ENTRY_THRESHOLD:-0.15}"      # Buy below this price (15%)
 EXIT_THRESHOLD="${EXIT_THRESHOLD:-0.45}"        # Sell above this price (45%)
-EDGE_THRESHOLD="${EDGE_THRESHOLD:-0.15}"        # Min edge to trade (15% per article)
+EDGE_PCT_THRESHOLD="${EDGE_PCT_THRESHOLD:-15}"  # Min RELATIVE edge to trade (15% of market price)
+MIN_PRICE="${MIN_PRICE:-0.01}"                  # Skip markets priced below this (too illiquid)
+MAX_SPREAD_PCT="${MAX_SPREAD_PCT:-50}"          # Skip markets with spread wider than this %
 TRADE_AMOUNT="${TRADE_AMOUNT:-2}"               # USD per trade ($2 max position per article)
 VENUE="${VENUE:-sim}"                           # sim or polymarket
 MAX_TRADES="${MAX_TRADES:-5}"                   # Max trades per run
@@ -32,7 +34,7 @@ log() {
   echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*"
 }
 
-log "=== Weather Trader starting (dry_run=$DRY_RUN, edge_threshold=$EDGE_THRESHOLD, venue=$VENUE) ==="
+log "=== Weather Trader starting (dry_run=$DRY_RUN, edge_pct=$EDGE_PCT_THRESHOLD%, min_price=$MIN_PRICE, venue=$VENUE) ==="
 
 # Step 1: Fetch weather markets
 log "Fetching weather markets..."
@@ -70,43 +72,58 @@ echo "$MARKETS" | jq -c '.markets[]' 2>/dev/null | while IFS= read -r market; do
     continue
   }
 
+  # Pre-filter: skip sub-penny markets (too illiquid for real trading)
+  PRICE_OK=$(echo "$CURRENT_PRICE $MIN_PRICE" | awk '{print ($1 >= $2) ? "yes" : "no"}')
+  if [[ "$PRICE_OK" != "yes" ]]; then
+    log "  Price too low ($CURRENT_PRICE < $MIN_PRICE), skipping"
+    continue
+  fi
+
+  # Check spread from market data
+  SPREAD_PCT=$(echo "$market" | jq -r '.spread // 0' 2>/dev/null)
+  # If no spread in market list, we'll check in context
+
+  # Rate limit: context endpoint is 20/min, add delay
+  sleep 3
+
   # Check for warnings
   WARNINGS=$(echo "$CONTEXT" | jq -r '.warnings // [] | join(", ")' 2>/dev/null)
   if [[ -n "$WARNINGS" && "$WARNINGS" != "" ]]; then
-    log "WARN: $WARNINGS"
+    log "  WARN: $WARNINGS"
+  fi
+
+  # Check spread from context
+  CTX_SPREAD=$(echo "$CONTEXT" | jq -r '.slippage.spread_pct // 0' 2>/dev/null)
+  SPREAD_TOO_WIDE=$(echo "$CTX_SPREAD $MAX_SPREAD_PCT" | awk '{print ($1 > $2) ? "yes" : "no"}')
+  if [[ "$SPREAD_TOO_WIDE" == "yes" ]]; then
+    log "  Spread too wide (${CTX_SPREAD}% > ${MAX_SPREAD_PCT}%), skipping"
+    continue
   fi
 
   # Check if we already hold a position
   HAS_POSITION=$(echo "$CONTEXT" | jq -r '.position.shares // 0' 2>/dev/null)
   IS_HOLDING=$(echo "$HAS_POSITION" | awk '{print ($1 > 0) ? "yes" : "no"}')
   if [[ "$IS_HOLDING" == "yes" ]]; then
-    log "Already holding position ($HAS_POSITION shares), skipping"
+    log "  Already holding position ($HAS_POSITION shares), skipping"
     continue
   fi
-
-  # Rate limit: context endpoint is 20/min, add delay
-  sleep 3
 
   # Use Simmer's built-in AI consensus and edge analysis
   DIVERGENCE=$(echo "$CONTEXT" | jq -r '.market.divergence // .edge.user_edge // 0' 2>/dev/null)
   RECOMMENDATION=$(echo "$CONTEXT" | jq -r '.edge.recommendation // "HOLD"' 2>/dev/null)
   AI_PRICE=$(echo "$CONTEXT" | jq -r '.market.ai_consensus // 0' 2>/dev/null)
 
-  # Calculate edge (absolute divergence)
-  if command -v bc &>/dev/null; then
-    EDGE=$(echo "scale=4; x=$DIVERGENCE; if (x < 0) -x else x" | bc 2>/dev/null || echo "0")
-  else
-    # Fallback: use awk for abs
-    EDGE=$(echo "$DIVERGENCE" | awk '{x=$1; if(x<0) x=-x; printf "%.4f", x}')
-  fi
+  # Calculate RELATIVE edge: |divergence| / market_price * 100
+  ABS_DIVERGENCE=$(echo "$DIVERGENCE" | awk '{x=$1; if(x<0) x=-x; print x}')
+  EDGE_PCT=$(echo "$ABS_DIVERGENCE $CURRENT_PRICE" | awk '{if($2>0) printf "%.1f", ($1/$2)*100; else print "0"}')
 
-  log "Edge: $EDGE (threshold: $EDGE_THRESHOLD), AI price: $AI_PRICE, recommendation: $RECOMMENDATION"
+  log "  Edge: ${EDGE_PCT}% (threshold: ${EDGE_PCT_THRESHOLD}%), divergence: $ABS_DIVERGENCE, AI: $AI_PRICE, rec: $RECOMMENDATION, spread: ${CTX_SPREAD}%"
 
-  # Step 5: Trade if edge exceeds threshold
-  SHOULD_TRADE=$(echo "$EDGE $EDGE_THRESHOLD" | awk '{print ($1 >= $2) ? "yes" : "no"}')
+  # Trade if relative edge exceeds threshold
+  SHOULD_TRADE=$(echo "$EDGE_PCT $EDGE_PCT_THRESHOLD" | awk '{print ($1 >= $2) ? "yes" : "no"}')
 
   if [[ "$SHOULD_TRADE" != "yes" ]]; then
-    log "Edge too small ($EDGE < $EDGE_THRESHOLD), skipping"
+    log "  Edge too small (${EDGE_PCT}% < ${EDGE_PCT_THRESHOLD}%), skipping"
     continue
   fi
 
@@ -117,7 +134,7 @@ echo "$MARKETS" | jq -c '.markets[]' 2>/dev/null | while IFS= read -r market; do
     SIDE="no"
   fi
 
-  REASONING="Weather market edge: AI probability $AI_PRICE vs market price $CURRENT_PRICE (divergence: $DIVERGENCE). Edge $EDGE exceeds threshold $EDGE_THRESHOLD."
+  REASONING="Weather market edge: AI probability $AI_PRICE vs market price $CURRENT_PRICE (divergence: $DIVERGENCE, relative edge: ${EDGE_PCT}%). Spread: ${CTX_SPREAD}%."
 
   if [[ "$DRY_RUN" == "true" ]]; then
     log "DRY RUN: Would trade $SIDE on '$QUESTION' for \$$TRADE_AMOUNT"
