@@ -1,0 +1,13 @@
+# Secrets
+docs/agent-config.json
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+docs/agent-config.json
+docs/
