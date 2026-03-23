@@ -1,0 +1,12 @@
+{
+  "name": "simmer-trading",
+  "version": "0.1.0",
+  "description": "Trade prediction markets (Polymarket, Kalshi) through Simmer's unified REST API. Paper trade with $SIM, run automated strategies, manage risk, compete on the leaderboard.",
+  "author": "lacymorrow",
+  "license": "MIT",
+  "tags": ["trading", "prediction-markets", "polymarket", "kalshi", "simmer", "automation"],
+  "homepage": "https://github.com/lacymorrow/simmer-trading-skill",
+  "requires": {
+    "bins": ["curl", "jq"]
+  }
+}
