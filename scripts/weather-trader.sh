@@ -38,6 +38,8 @@ SKILL_SLUG="simmer-weather-trader"
 declare -A CITY_COORDS=(
   ["new york"]="40.7128,-74.0060"
   ["nyc"]="40.7128,-74.0060"
+  ["new york city"]="40.7128,-74.0060"
+  ["new york"]="40.7128,-74.0060"
   ["chicago"]="41.8781,-87.6298"
   ["seattle"]="47.6062,-122.3321"
   ["atlanta"]="33.7490,-84.3880"
@@ -47,9 +49,14 @@ declare -A CITY_COORDS=(
   ["denver"]="39.7392,-104.9903"
   ["houston"]="29.7604,-95.3698"
   ["phoenix"]="33.4484,-112.0740"
+  ["san francisco"]="37.7749,-122.4194"
+  ["boston"]="42.3601,-71.0589"
+  ["washington"]="38.9072,-77.0369"
+  ["washington dc"]="38.9072,-77.0369"
   ["hong kong"]=""
   ["london"]=""
   ["tokyo"]=""
+  ["tel aviv"]=""
 )
 
 log() {
@@ -313,7 +320,7 @@ echo "$MARKETS" | jq -c '.markets[]' 2>/dev/null | while IFS= read -r market; do
   # Step 4: Get NOAA forecast
   CITY_LOWER=$(echo "$CITY" | tr '[:upper:]' '[:lower:]')
   if [[ -z "${CITY_COORDS[$CITY_LOWER]:-}" ]]; then
-    log "  No NOAA data for $CITY (international market), skipping"
+    log "  No NOAA data for $CITY (no coords configured), skipping"
     continue
   fi
 
