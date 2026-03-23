@@ -18,10 +18,13 @@ SIMMER="${SCRIPT_DIR}/simmer.sh"
 
 # --- Configuration (override via env) ---
 DRY_RUN="${DRY_RUN:-true}"
-EDGE_THRESHOLD="${EDGE_THRESHOLD:-0.10}"       # Min edge to trade (10%)
-TRADE_AMOUNT="${TRADE_AMOUNT:-10}"              # USD per trade
+ENTRY_THRESHOLD="${ENTRY_THRESHOLD:-0.15}"      # Buy below this price (15%)
+EXIT_THRESHOLD="${EXIT_THRESHOLD:-0.45}"        # Sell above this price (45%)
+EDGE_THRESHOLD="${EDGE_THRESHOLD:-0.15}"        # Min edge to trade (15% per article)
+TRADE_AMOUNT="${TRADE_AMOUNT:-2}"               # USD per trade ($2 max position per article)
 VENUE="${VENUE:-sim}"                           # sim or polymarket
 MAX_TRADES="${MAX_TRADES:-5}"                   # Max trades per run
+LOCATIONS="${LOCATIONS:-NYC,Chicago,Seattle,Atlanta,Dallas,Miami}"
 SOURCE="sdk:weather-trader"
 SKILL_SLUG="simmer-weather-trader"
 
@@ -75,18 +78,19 @@ echo "$MARKETS" | jq -c '.markets[]' 2>/dev/null | while IFS= read -r market; do
 
   # Check if we already hold a position
   HAS_POSITION=$(echo "$CONTEXT" | jq -r '.position.shares // 0' 2>/dev/null)
-  if [[ "$HAS_POSITION" != "0" && "$HAS_POSITION" != "null" ]]; then
+  IS_HOLDING=$(echo "$HAS_POSITION" | awk '{print ($1 > 0) ? "yes" : "no"}')
+  if [[ "$IS_HOLDING" == "yes" ]]; then
     log "Already holding position ($HAS_POSITION shares), skipping"
     continue
   fi
 
-  # Step 4: Extract location info from question for NOAA lookup
-  # Try to extract city/state from the question text
-  # Common patterns: "temperature in NYC", "weather in Chicago", etc.
-  # For now, use the Simmer AI divergence as the signal
-  DIVERGENCE=$(echo "$CONTEXT" | jq -r '.edge_analysis.divergence // 0' 2>/dev/null)
-  RECOMMENDATION=$(echo "$CONTEXT" | jq -r '.edge_analysis.recommendation // "HOLD"' 2>/dev/null)
-  AI_PRICE=$(echo "$CONTEXT" | jq -r '.edge_analysis.ai_probability // 0' 2>/dev/null)
+  # Rate limit: context endpoint is 20/min, add delay
+  sleep 3
+
+  # Use Simmer's built-in AI consensus and edge analysis
+  DIVERGENCE=$(echo "$CONTEXT" | jq -r '.market.divergence // .edge.user_edge // 0' 2>/dev/null)
+  RECOMMENDATION=$(echo "$CONTEXT" | jq -r '.edge.recommendation // "HOLD"' 2>/dev/null)
+  AI_PRICE=$(echo "$CONTEXT" | jq -r '.market.ai_consensus // 0' 2>/dev/null)
 
   # Calculate edge (absolute divergence)
   if command -v bc &>/dev/null; then
