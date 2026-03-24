@@ -27,16 +27,16 @@ fi
 
 # Production settings — LIVE trading on Polymarket
 export DRY_RUN=false
-export EDGE_PCT_THRESHOLD=20    # 20% relative edge minimum (tighter for real $)
-export TRADE_AMOUNT=1           # $1 USDC per trade (conservative with $4 balance)
+export EDGE_PCT_THRESHOLD=15    # 15% relative edge minimum
+export TRADE_AMOUNT=10          # $10 USDC per trade
 export VENUE=polymarket         # Real money on Polymarket
-export MAX_TRADES=3             # Max 3 trades per scan
+export MAX_TRADES=5             # Max 5 trades per scan
 export MIN_PRICE=0.03
 export MAX_PRICE=0.80
 export MAX_SPREAD_PCT=35
 export STOP_LOSS_PCT=0.30
 export TAKE_PROFIT_PCT=1.50
-export MAX_DAILY_LOSS=2         # $2 USDC daily loss limit (protect the balance)
+export MAX_DAILY_LOSS=30        # $30 USDC daily loss limit
 
 echo "" >> "$LOG_FILE"
 echo "========================================" >> "$LOG_FILE"
