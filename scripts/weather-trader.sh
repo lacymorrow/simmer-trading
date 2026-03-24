@@ -33,13 +33,12 @@ MAX_DAILY_LOSS="${MAX_DAILY_LOSS:-20}"          # Stop trading if daily loss exc
 SOURCE="sdk:weather-trader"
 SKILL_SLUG="simmer-weather-trader"
 
-# NOAA grid points for supported cities
+# NOAA grid points for US cities
 # Format: "LAT,LON" - NOAA will give us the grid office/point
 declare -A CITY_COORDS=(
   ["new york"]="40.7128,-74.0060"
   ["nyc"]="40.7128,-74.0060"
   ["new york city"]="40.7128,-74.0060"
-  ["new york"]="40.7128,-74.0060"
   ["chicago"]="41.8781,-87.6298"
   ["seattle"]="47.6062,-122.3321"
   ["atlanta"]="33.7490,-84.3880"
@@ -53,10 +52,86 @@ declare -A CITY_COORDS=(
   ["boston"]="42.3601,-71.0589"
   ["washington"]="38.9072,-77.0369"
   ["washington dc"]="38.9072,-77.0369"
-  ["hong kong"]=""
-  ["london"]=""
-  ["tokyo"]=""
-  ["tel aviv"]=""
+  ["austin"]="30.2672,-97.7431"
+  ["nashville"]="36.1627,-86.7816"
+  ["minneapolis"]="44.9778,-93.2650"
+  ["detroit"]="42.3314,-83.0458"
+  ["portland"]="45.5152,-122.6784"
+  ["las vegas"]="36.1699,-115.1398"
+  ["orlando"]="28.5383,-81.3792"
+  ["san diego"]="32.7157,-117.1611"
+  ["san antonio"]="29.4241,-98.4936"
+  ["philadelphia"]="39.9526,-75.1652"
+  ["charlotte"]="35.2271,-80.8431"
+  ["indianapolis"]="39.7684,-86.1581"
+  ["columbus"]="39.9612,-82.9988"
+  ["jacksonville"]="30.3322,-81.6557"
+  ["milwaukee"]="43.0389,-87.9065"
+  ["memphis"]="35.1495,-90.0490"
+  ["oklahoma city"]="35.4676,-97.5164"
+  ["louisville"]="38.2527,-85.7585"
+  ["baltimore"]="39.2904,-76.6122"
+  ["salt lake city"]="40.7608,-111.8910"
+  ["kansas city"]="39.0997,-94.5786"
+  ["raleigh"]="35.7796,-78.6382"
+  ["st. louis"]="38.6270,-90.1994"
+  ["st louis"]="38.6270,-90.1994"
+  ["tampa"]="27.9506,-82.4572"
+  ["pittsburgh"]="40.4406,-79.9959"
+  ["cincinnati"]="39.1031,-84.5120"
+  ["new orleans"]="29.9511,-90.0715"
+  ["sacramento"]="38.5816,-121.4944"
+)
+
+# International cities for Open-Meteo (LAT,LON)
+declare -A INTL_COORDS=(
+  ["hong kong"]="22.3193,114.1694"
+  ["london"]="51.5074,-0.1278"
+  ["tokyo"]="35.6762,139.6503"
+  ["tel aviv"]="32.0853,34.7818"
+  ["shanghai"]="31.2304,121.4737"
+  ["buenos aires"]="-34.6037,-58.3816"
+  ["beijing"]="39.9042,116.4074"
+  ["seoul"]="37.5665,126.9780"
+  ["mumbai"]="19.0760,72.8777"
+  ["sydney"]="-33.8688,151.2093"
+  ["dubai"]="25.2048,55.2708"
+  ["paris"]="48.8566,2.3522"
+  ["berlin"]="52.5200,13.4050"
+  ["madrid"]="40.4168,-3.7038"
+  ["rome"]="41.9028,12.4964"
+  ["milan"]="45.4642,9.1900"
+  ["bangkok"]="13.7563,100.5018"
+  ["singapore"]="1.3521,103.8198"
+  ["toronto"]="43.6532,-79.3832"
+  ["mexico city"]="19.4326,-99.1332"
+  ["cairo"]="30.0444,31.2357"
+  ["jakarta"]="-6.2088,106.8456"
+  ["istanbul"]="41.0082,28.9784"
+  ["moscow"]="55.7558,37.6173"
+  ["rio de janeiro"]="-22.9068,-43.1729"
+  ["sao paulo"]="-23.5505,-46.6333"
+  ["wuhan"]="30.5928,114.3055"
+  ["osaka"]="34.6937,135.5023"
+  ["taipei"]="25.0330,121.5654"
+  ["kuala lumpur"]="3.1390,101.6869"
+  ["johannesburg"]="-26.2041,28.0473"
+  ["lima"]="-12.0464,-77.0428"
+  ["bogota"]="4.7110,-74.0721"
+  ["santiago"]="-33.4489,-70.6693"
+  ["nairobi"]="-1.2921,36.8219"
+  ["amsterdam"]="52.3676,4.9041"
+  ["zurich"]="47.3769,8.5417"
+  ["vienna"]="48.2082,16.3738"
+  ["stockholm"]="59.3293,18.0686"
+  ["athens"]="37.9838,23.7275"
+  ["lisbon"]="38.7223,-9.1393"
+  ["warsaw"]="52.2297,21.0122"
+  ["prague"]="50.0755,14.4378"
+  ["dublin"]="53.3498,-6.2603"
+  ["lagos"]="6.5244,3.3792"
+  ["cape town"]="-33.9249,18.4241"
+  ["melbourne"]="-37.8136,144.9631"
 )
 
 log() {
@@ -151,6 +226,64 @@ get_noaa_forecast() {
 
   # Return all daytime forecast high temps as JSON array
   echo "$forecast" | jq '[.properties.periods[] | select(.isDaytime == true) | {name: .name, temp: .temperature, unit: .temperatureUnit}]' 2>/dev/null
+}
+
+# Fetch Open-Meteo forecast for international cities
+# Returns JSON array matching NOAA format: [{name, temp (in F), unit}]
+get_openmeteo_forecast() {
+  local city="$1"
+  local city_lower=$(echo "$city" | tr '[:upper:]' '[:lower:]')
+  local coords="${INTL_COORDS[$city_lower]:-}"
+
+  if [[ -z "$coords" ]]; then
+    echo ""
+    return
+  fi
+
+  local lat=$(echo "$coords" | cut -d, -f1)
+  local lon=$(echo "$coords" | cut -d, -f2)
+
+  # Open-Meteo free API: 7-day forecast with daily max temp
+  local url="https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max&temperature_unit=fahrenheit&timezone=auto&forecast_days=7"
+  local resp
+  resp=$(curl -sf --max-time 10 "$url" 2>/dev/null) || {
+    echo ""
+    return
+  }
+
+  # Convert to same format as NOAA output
+  echo "$resp" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+dates = data.get('daily', {}).get('time', [])
+temps = data.get('daily', {}).get('temperature_2m_max', [])
+result = []
+for d, t in zip(dates, temps):
+    if t is not None:
+        result.append({'name': d, 'temp': round(t), 'unit': 'F'})
+print(json.dumps(result))
+" 2>/dev/null
+}
+
+# Unified forecast: try NOAA for US cities, Open-Meteo for international
+get_forecast() {
+  local city="$1"
+  local city_lower=$(echo "$city" | tr '[:upper:]' '[:lower:]')
+
+  # Try NOAA first (US cities)
+  if [[ -n "${CITY_COORDS[$city_lower]:-}" ]]; then
+    get_noaa_forecast "$city"
+    return
+  fi
+
+  # Fall back to Open-Meteo (international)
+  if [[ -n "${INTL_COORDS[$city_lower]:-}" ]]; then
+    get_openmeteo_forecast "$city"
+    return
+  fi
+
+  # Unknown city
+  echo ""
 }
 
 # Estimate probability based on NOAA forecast vs market question
@@ -317,16 +450,16 @@ echo "$MARKETS" | jq -c '.markets[]' 2>/dev/null | while IFS= read -r market; do
     continue
   fi
 
-  # Step 4: Get NOAA forecast
+  # Step 4: Get forecast (NOAA for US, Open-Meteo for international)
   CITY_LOWER=$(echo "$CITY" | tr '[:upper:]' '[:lower:]')
-  if [[ -z "${CITY_COORDS[$CITY_LOWER]:-}" ]]; then
-    log "  No NOAA data for $CITY (no coords configured), skipping"
+  if [[ -z "${CITY_COORDS[$CITY_LOWER]:-}" && -z "${INTL_COORDS[$CITY_LOWER]:-}" ]]; then
+    log "  No forecast data for $CITY (not configured), skipping"
     continue
   fi
 
-  FORECAST=$(get_noaa_forecast "$CITY")
-  if [[ -z "$FORECAST" || "$FORECAST" == "null" ]]; then
-    log "  Failed to get NOAA forecast for $CITY, skipping"
+  FORECAST=$(get_forecast "$CITY")
+  if [[ -z "$FORECAST" || "$FORECAST" == "null" || "$FORECAST" == "[]" ]]; then
+    log "  Failed to get forecast for $CITY, skipping"
     continue
   fi
 
